@@ -76,8 +76,10 @@ static void flash_wait_busy(QTestState *qts)
     int timeout = 10000;
     uint8_t sr;
     do {
+        qtest_writel(qts, SPI_CR2, 0);
         spi_xfer(qts, FLASH_CMD_READ_STATUS);
         sr = spi_xfer(qts, 0x00);
+        qtest_writel(qts, SPI_CR2, 1);
         qtest_clock_step(qts, 100000);
     } while ((sr & FLASH_SR_BUSY) && --timeout);
     g_assert_cmpint(timeout, >, 0);

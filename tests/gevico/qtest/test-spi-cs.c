@@ -65,13 +65,15 @@ static void spi_select(QTestState *qts, int cs)
     qtest_writel(qts, SPI_CR2, cs & 0x3);
 }
 
-static void flash_wait_busy(QTestState *qts)
+static void flash_wait_busy(QTestState *qts, int cs)
 {
     int timeout = 10000;
     uint8_t sr;
     do {
+        spi_select(qts, cs);
         spi_xfer(qts, FLASH_CMD_READ_STATUS);
         sr = spi_xfer(qts, 0x00);
+        spi_select(qts, cs ^ 1);
         qtest_clock_step(qts, 100000);
     } while ((sr & FLASH_SR_BUSY) && --timeout);
 }
@@ -99,7 +101,7 @@ static void flash_erase_program_read(QTestState *qts, uint32_t addr,
     spi_xfer(qts, (addr >> 8) & 0xFF);
     spi_xfer(qts, addr & 0xFF);
     spi_select(qts, cs ^ 1);
-    flash_wait_busy(qts);
+    flash_wait_busy(qts, cs);
 
     /* Program */
     spi_select(qts, cs);
@@ -114,7 +116,7 @@ static void flash_erase_program_read(QTestState *qts, uint32_t addr,
         spi_xfer(qts, wbuf[i]);
     }
     spi_select(qts, cs ^ 1);
-    flash_wait_busy(qts);
+    flash_wait_busy(qts, cs);
 
     /* Read */
     spi_select(qts, cs);

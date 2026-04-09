@@ -68,8 +68,11 @@ static void spi_init(QTestState *qts)
 
 static uint8_t flash_read_status(QTestState *qts)
 {
+    qtest_writel(qts, SPI_CR2, 0);
     spi_xfer(qts, FLASH_CMD_READ_STATUS);
-    return spi_xfer(qts, 0x00);
+    uint8_t sr = spi_xfer(qts, 0x00);
+    qtest_writel(qts, SPI_CR2, 1);
+    return sr;
 }
 
 static void flash_wait_busy(QTestState *qts)
