@@ -27,14 +27,24 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
 {
     GPGPUState *s = opaque; 
     switch(addr) {
-    case 0x0000:
+    case GPGPU_REG_DEV_ID:
         return 0x47505055;
-    case 0x0004:
+    case GPGPU_REG_DEV_VERSION:
         return 0x00010000;
-    case 0x000C:
+    case GPGPU_REG_VRAM_SIZE_LO:
         return (uint32_t)(s->vram_size & 0xFFFFFFFF); 
-    case 0x0010:
+    case GPGPU_REG_VRAM_SIZE_HI:
         return (uint32_t)(s->vram_size >> 32);
+    case GPGPU_REG_GLOBAL_STATUS:
+        return s->global_status;
+    case GPGPU_REG_GLOBAL_CTRL:
+        return s->global_ctrl;
+    case GPGPU_REG_GRID_DIM_X:
+        return opaque->kernel->grid_dim[0];
+    case GPGPU_REG_GRID_DIM_Y:
+        return opaque->kernel->grid_dim[1];
+    case GPGPU_REG_GRID_DIM_Z:
+        return opaque->kernel->grid_dim[2];
     default:
         return 0;
     }
@@ -44,10 +54,23 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
 static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
                              unsigned size)
 {
-    (void)opaque;
-    (void)addr;
-    (void)val;
-    (void)size;
+    GPGPUState *s = opaque;
+    switch(addr) {
+    case GPGPU_REG_GLOBAL_CTRL:
+        if(val & GPGPU_CTRL_RESET) { //复位高于一切
+            gpgpu_reset(opaque);
+        }
+        s->global_ctrl = val & GPGPU_CTRL_ENABLE;
+        break;
+    case GPGPU_REG_GRID_DIM_X:
+        opaque->kernel->grid_dim[0] = val;
+    case GPGPU_REG_GRID_DIM_Y:
+        opaque->kernel->grid_dim[1] = val;
+    case GPGPU_REG_GRID_DIM_Z:
+        opaque->kernel->grid_dim[2] = val;
+    default:
+        return ;
+    }
 }
 
 static const MemoryRegionOps gpgpu_ctrl_ops = {
