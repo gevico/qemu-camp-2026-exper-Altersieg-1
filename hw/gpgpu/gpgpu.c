@@ -47,6 +47,21 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
         return s->kernel.grid_dim[1];
     case GPGPU_REG_GRID_DIM_Z:
         return s->kernel.grid_dim[2];
+    case GPGPU_REG_DMA_SRC_LO:
+        return (uint32_t)(s->dma.src_addr & 0xFFFFFFFF);
+    case GPGPU_REG_DMA_SRC_HI:
+        return (uint32_t)(s->dma.src_addr >> 32);
+    case GPGPU_REG_DMA_DST_LO:
+        return (uint32_t)(s->dma.dst_addr & 0xFFFFFFFF);
+    case GPGPU_REG_DMA_DST_HI:
+        return (uint32_t)(s->dma.dst_addr >> 32);
+    case GPGPU_REG_DMA_SIZE:
+        return s->dma.size;
+    case GPGPU_DMA_IRQ_ENABLE:
+        //完成时产生中断，是不是不该在这里实现？
+        return s->irq_enable;
+    case GPGPU_DMA_IRQ_STATUS:
+        return s->irq_status; //反映硬件现实
     default:
         return 0;
     }
@@ -72,6 +87,24 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
         break;
     case GPGPU_REG_GRID_DIM_Z:
         s->kernel.grid_dim[2] = (uint32_t)val;
+        break;
+    case GPGPU_REG_DMA_SRC_LO:
+        s->dma.src_addr = (s->dma.src_addr & 0xFFFFFFFF00000000ULL) | (val & 0x00000000FFFFFFFFULL);
+        break;
+    case GPGPU_REG_DMA_SRC_HI:
+        s->dma.src_addr = (s->dma.src_addr & 0x00000000FFFFFFFFULL) | (val & 0xFFFFFFFF00000000ULL);
+        break;
+    case GPGPU_REG_DMA_DST_LO:
+        s->dma.dst_addr = (s->dma.dst_addr & 0xFFFFFFFF00000000ULL) | (val & 0x00000000FFFFFFFFULL);
+        break;
+    case GPGPU_REG_DMA_DST_HI:
+        s->dma.dst_addr = (s->dma.dst_addr & 0x00000000FFFFFFFFULL) | (val & 0xFFFFFFFF00000000ULL);
+        break;    
+    case GPGPU_REG_DMA_SIZE:
+        s->dma.size = (uint32_t)val;
+        break;
+    case GPGPU_DMA_IRQ_ENABLE:
+        s->irq_enable = (uint32_t)val;
         break;
     default:
         return ;
