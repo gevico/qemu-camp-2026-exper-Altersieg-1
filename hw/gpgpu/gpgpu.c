@@ -25,10 +25,19 @@
 /* TODO: Implement MMIO control register read */
 static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
 {
-    (void)opaque;
-    (void)addr;
-    (void)size;
-    return 0;
+    GPGPUState *s = opaque; 
+    switch(addr) {
+    case 0x0000:
+        return 0x47505055;
+    case 0x0004:
+        return 0x00010000;
+    case 0x000C:
+        return (uint32_t)(s->vram_size & 0xFFFFFFFF); 
+    case 0x0010:
+        return (uint32_t)(s->vram_size >> 32);
+    default:
+        return 0;
+    }
 }
 
 /* TODO: Implement MMIO control register write */
@@ -124,7 +133,7 @@ static void gpgpu_realize(PCIDevice *pdev, Error **errp)
     GPGPUState *s = GPGPU(pdev);
     uint8_t *pci_conf = pdev->config;
 
-    pci_config_set_interrupt_pin(pci_conf, 1);
+    pci_config_set_interrupt_pin(pci_conf, 1);//给显卡插上一根虚拟中断线
 
     s->vram_ptr = g_malloc0(s->vram_size);
     if (!s->vram_ptr) {
@@ -135,7 +144,7 @@ static void gpgpu_realize(PCIDevice *pdev, Error **errp)
     /* BAR 0: control registers */
     memory_region_init_io(&s->ctrl_mmio, OBJECT(s), &gpgpu_ctrl_ops, s,
                           "gpgpu-ctrl", GPGPU_CTRL_BAR_SIZE);
-    pci_register_bar(pdev, 0,
+    pci_register_bar(pdev, 0, //将上面的空间正式挂载到 PCIe 的 BAR 槽位上
                      PCI_BASE_ADDRESS_SPACE_MEMORY |
                      PCI_BASE_ADDRESS_MEM_TYPE_64,
                      &s->ctrl_mmio);
