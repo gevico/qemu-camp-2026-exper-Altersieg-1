@@ -22,15 +22,17 @@
 #include "gpgpu.h"
 #include "gpgpu_core.h"
 
+static void gpgpu_reset(DeviceState *dev);//先声明，为了ctrl write用
+
 /* TODO: Implement MMIO control register read */
 static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
 {
     GPGPUState *s = opaque; 
     switch(addr) {
     case GPGPU_REG_DEV_ID:
-        return 0x47505055;
+        return GPGPU_DEV_ID_VALUE;
     case GPGPU_REG_DEV_VERSION:
-        return 0x00010000;
+        return GPGPU_DEV_VERSION_VALUE;
     case GPGPU_REG_VRAM_SIZE_LO:
         return (uint32_t)(s->vram_size & 0xFFFFFFFF); 
     case GPGPU_REG_VRAM_SIZE_HI:
@@ -40,11 +42,11 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
     case GPGPU_REG_GLOBAL_CTRL:
         return s->global_ctrl;
     case GPGPU_REG_GRID_DIM_X:
-        return opaque->kernel->grid_dim[0];
+        return s->kernel.grid_dim[0];
     case GPGPU_REG_GRID_DIM_Y:
-        return opaque->kernel->grid_dim[1];
+        return s->kernel.grid_dim[1];
     case GPGPU_REG_GRID_DIM_Z:
-        return opaque->kernel->grid_dim[2];
+        return s->kernel.grid_dim[2];
     default:
         return 0;
     }
@@ -58,16 +60,19 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
     switch(addr) {
     case GPGPU_REG_GLOBAL_CTRL:
         if(val & GPGPU_CTRL_RESET) { //复位高于一切
-            gpgpu_reset(opaque);
+            gpgpu_reset(DEVICE(s));
         }
         s->global_ctrl = val & GPGPU_CTRL_ENABLE;
         break;
     case GPGPU_REG_GRID_DIM_X:
-        opaque->kernel->grid_dim[0] = val;
+        s->kernel.grid_dim[0] = (uint32_t)val;
+        break;
     case GPGPU_REG_GRID_DIM_Y:
-        opaque->kernel->grid_dim[1] = val;
+        s->kernel.grid_dim[1] = (uint32_t)val;
+        break;
     case GPGPU_REG_GRID_DIM_Z:
-        opaque->kernel->grid_dim[2] = val;
+        s->kernel.grid_dim[2] = (uint32_t)val;
+        break;
     default:
         return ;
     }
@@ -86,20 +91,49 @@ static const MemoryRegionOps gpgpu_ctrl_ops = {
 /* TODO: Implement VRAM read */
 static uint64_t gpgpu_vram_read(void *opaque, hwaddr addr, unsigned size)
 {
-    (void)opaque;
-    (void)addr;
-    (void)size;
-    return 0;
+    GPGPUState *s = opaque;
+    if (addr + size > s->vram_size) {
+        s->error_status |= GPGPU_ERR_VRAM_FAULT;
+        return 0;
+    }
+
+    switch(size){
+        case 1:
+            return *(uint8_t *)(s->vram_ptr + addr);
+        case 2:
+            return *(uint16_t *)(s->vram_ptr + addr);
+        case 4:
+            return *(uint32_t *)(s->vram_ptr + addr);
+        case 8:
+            return *(uint64_t *)(s->vram_ptr + addr);
+        default:
+            return 0;
+    }
 }
 
 /* TODO: Implement VRAM write */
 static void gpgpu_vram_write(void *opaque, hwaddr addr, uint64_t val,
                              unsigned size)
 {
-    (void)opaque;
-    (void)addr;
-    (void)val;
-    (void)size;
+    GPGPUState *s = opaque;
+    if (addr + size > s->vram_size) {
+        s->error_status |= GPGPU_ERR_VRAM_FAULT;
+        return ;
+    }
+    switch(size){
+        case 1:
+            *(uint8_t *)(s->vram_ptr + addr) = (uint8_t)val;
+            break;
+        case 2:
+            *(uint16_t *)(s->vram_ptr + addr) = (uint16_t)val;
+            break;
+        case 4:
+            *(uint32_t *)(s->vram_ptr + addr) = (uint32_t)val;
+            break;
+        case 8:
+            *(uint64_t *)(s->vram_ptr + addr) = (uint64_t)val;
+            break;
+    }
 }
 
 static const MemoryRegionOps gpgpu_vram_ops = {
