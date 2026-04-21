@@ -61,6 +61,29 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
         return s->irq_enable;
     case GPGPU_REG_DMA_STATUS:
         return s->irq_status; //反映硬件现实
+
+    case GPGPU_REG_THREAD_ID_X:
+        return (uint32_t)s->simt.thread_id[0];
+    case GPGPU_REG_THREAD_ID_Y:
+        return (uint32_t)s->simt.thread_id[1];
+    case GPGPU_REG_THREAD_ID_Z:
+        return (uint32_t)s->simt.thread_id[2];
+    case GPGPU_REG_BLOCK_ID_X:
+        return (uint32_t)s->simt.block_id[0];
+    case GPGPU_REG_BLOCK_ID_Y:
+        return (uint32_t)s->simt.block_id[1];
+    case GPGPU_REG_BLOCK_ID_Z:
+        return (uint32_t)s->simt.block_id[2];
+
+
+    case GPGPU_REG_WARP_ID:
+        return (uint32_t)s->simt.warp_id;
+    case GPGPU_REG_LANE_ID:
+        return (uint32_t)s->simt.lane_id;
+
+
+    case GPGPU_REG_THREAD_MASK:
+        return (uint32_t)s->simt.thread_mask;
     default:
         return 0;
     }
@@ -75,7 +98,7 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
     case GPGPU_REG_GLOBAL_CTRL:
         if(val & GPGPU_CTRL_RESET) { //复位高于一切
             gpgpu_reset(DEVICE(s));
-        }
+        }else
         s->global_ctrl = val & GPGPU_CTRL_ENABLE;
         break;
     case GPGPU_REG_GRID_DIM_X:
@@ -104,6 +127,41 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
         break;
     case GPGPU_REG_DMA_CTRL:
         s->irq_enable = (uint32_t)val | GPGPU_IRQ_KERNEL_DONE | GPGPU_IRQ_DMA_DONE | GPGPU_IRQ_ERROR;
+        break;
+
+
+    case GPGPU_REG_THREAD_ID_X:
+        s->simt.thread_id[0] = (uint32_t)val;
+        break;
+    case GPGPU_REG_THREAD_ID_Y:
+        s->simt.thread_id[1] = (uint32_t)val;
+        break;
+    case GPGPU_REG_THREAD_ID_Z:
+        s->simt.thread_id[2] = (uint32_t)val;
+        break;
+
+
+    case GPGPU_REG_BLOCK_ID_X:
+        s->simt.block_id[0] = (uint32_t)val;
+        break;
+    case GPGPU_REG_BLOCK_ID_Y:
+        s->simt.block_id[1] = (uint32_t)val;
+        break;
+    case GPGPU_REG_BLOCK_ID_Z:
+        s->simt.block_id[2] = (uint32_t)val;
+        break;
+
+
+    case GPGPU_REG_WARP_ID:
+        s->simt.warp_id = (uint32_t)val;
+        break;
+    case GPGPU_REG_LANE_ID:
+        s->simt.lane_id = (uint32_t)val;
+        break;
+
+
+    case GPGPU_REG_THREAD_MASK:
+        s->simt.thread_mask = (uint32_t)val;
         break;
     default:
         return ;
@@ -291,6 +349,7 @@ static void gpgpu_reset(DeviceState *dev)
     s->error_status = 0;
     s->irq_enable = 0;
     s->irq_status = 0;
+
     memset(&s->kernel, 0, sizeof(s->kernel));
     memset(&s->dma, 0, sizeof(s->dma));
     memset(&s->simt, 0, sizeof(s->simt));
