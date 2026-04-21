@@ -253,9 +253,42 @@ int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst)
                 *(uint32_t*)(s->vram_ptr + target_addr) = store_val;
             }
             break;
+        case 0x53: 
+            switch(funct7) {
+                case 0x68: // FCVT.S.W
+                    for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                        if (!(warp->active_mask & (1 << i))) continue;
+                        warp->lanes[i].fpr[rd] = int32_to_float32((int32_t)warp->lanes[i].f=gpr[rs1], 
+                                            &warp->lanes[i].fp_status);
+                    }
+                    break;
+
+                case 0x08: // FMUL.S
+                    for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                        if (!(warp->active_mask & (1 << i))) continue;
+                        warp->lanes[i].fpr[rd] = warp->lanes[i].fpr[rs1] * warp->lanes[i].fpr[rs2];
+                    }
+                    break;
+
+                case 0x00: //fadd.s
+                    for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                        if (!(warp->active_mask & (1 << i))) continue;
+                        warp->lanes[i].fpr[rd] = warp->lanes[i].fpr[rs1] + warp->lanes[i].fpr[rs2];
+                        }
+                    break;
+
+                case 0x60: //fcvt.w.s
+                        for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                            if (!(warp->active_mask & (1 << i))) continue;
+                            if(rd != 0) {
+                                warp->lanes[i].gpr[rd] = float32_to_int32_round_to_zero(warp->lanes[i].fpr[rs1], 
+                                            &warp->lanes[i].fp_status);
+                            }
+                        }
+                        break;
+            }
         default:
             return -1; // 遇到完全不认识的 opcode，直接报非法指令
     }
-
     return 0;
 }
