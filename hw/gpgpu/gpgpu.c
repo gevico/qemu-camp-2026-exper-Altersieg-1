@@ -57,10 +57,9 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
         return (uint32_t)(s->dma.dst_addr >> 32);
     case GPGPU_REG_DMA_SIZE:
         return s->dma.size;
-    case GPGPU_DMA_IRQ_ENABLE:
-        //完成时产生中断，是不是不该在这里实现？
+    case GPGPU_REG_DMA_CTRL:
         return s->irq_enable;
-    case GPGPU_DMA_IRQ_STATUS:
+    case GPGPU_REG_DMA_STATUS:
         return s->irq_status; //反映硬件现实
     default:
         return 0;
@@ -103,8 +102,8 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
     case GPGPU_REG_DMA_SIZE:
         s->dma.size = (uint32_t)val;
         break;
-    case GPGPU_DMA_IRQ_ENABLE:
-        s->irq_enable = (uint32_t)val;
+    case GPGPU_REG_DMA_CTRL:
+        s->irq_enable = (uint32_t)val | GPGPU_IRQ_KERNEL_DONE | GPGPU_IRQ_DMA_DONE | GPGPU_IRQ_ERROR;
         break;
     default:
         return ;
