@@ -41,12 +41,31 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
         return s->global_status;
     case GPGPU_REG_GLOBAL_CTRL:
         return s->global_ctrl;
+
+    //exp 4 
     case GPGPU_REG_GRID_DIM_X:
         return s->kernel.grid_dim[0];
     case GPGPU_REG_GRID_DIM_Y:
         return s->kernel.grid_dim[1];
     case GPGPU_REG_GRID_DIM_Z:
         return s->kernel.grid_dim[2];
+    case GPGPU_REG_BLOCK_DIM_X:
+        return s->kernel.block_dim[0];
+    case GPGPU_REG_BLOCK_DIM_Y:
+        return s->kernel.block_dim[1];
+    case GPGPU_REG_BLOCK_DIM_Z:
+        return s->kernel.block_dim[2];
+    case GPGPU_REG_KERNEL_ADDR_LO:
+        return (uint32_t)(s->kernel.kernel_addr & 0xFFFFFFFFULL);
+    case GPGPU_REG_KERNEL_ADDR_HI:
+        return (uint32_t)(s->kernel.kernel_addr >> 32);
+    case GPGPU_REG_KERNEL_ARGS_LO:
+        return (uint32_t)(s->kernel.kernel_args & 0xFFFFFFFFULL);
+    case GPGPU_REG_KERNEL_ARGS_HI:
+        return (uint32_t)(s->kernel.kernel_args >> 32);
+    case GPGPU_REG_SHARED_MEM_SIZE:
+        return s->kernel.shared_mem_size;
+
     case GPGPU_REG_DMA_SRC_LO:
         return (uint32_t)(s->dma.src_addr & 0xFFFFFFFF);
     case GPGPU_REG_DMA_SRC_HI:
@@ -101,6 +120,8 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
         }else
         s->global_ctrl = val & GPGPU_CTRL_ENABLE;
         break;
+
+    //exp4
     case GPGPU_REG_GRID_DIM_X:
         s->kernel.grid_dim[0] = (uint32_t)val;
         break;
@@ -110,6 +131,37 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
     case GPGPU_REG_GRID_DIM_Z:
         s->kernel.grid_dim[2] = (uint32_t)val;
         break;
+    case GPGPU_REG_BLOCK_DIM_X:
+        s->kernel.block_dim[0] = (uint32_t)val;
+        break;
+    case GPGPU_REG_BLOCK_DIM_Y:
+        s->kernel.block_dim[1] = (uint32_t)val;
+        break;
+    case GPGPU_REG_BLOCK_DIM_Z:
+        s->kernel.block_dim[2] = (uint32_t)val;
+        break;
+    case GPGPU_REG_KERNEL_ADDR_LO:
+        s->kernel.kernel_addr = (s->kernel.kernel_addr & 0xFFFFFFFF00000000ULL) | (val & 0xFFFFFFFFULL);
+        break;
+    case GPGPU_REG_KERNEL_ADDR_HI:
+        s->kernel.kernel_addr = (s->kernel.kernel_addr & 0x00000000FFFFFFFFULL) | ((val & 0xFFFFFFFFULL) << 32);
+        break;
+    case GPGPU_REG_KERNEL_ARGS_LO:
+        s->kernel.kernel_args = (s->kernel.kernel_args & 0xFFFFFFFF00000000ULL) | (val & 0xFFFFFFFFULL);
+        break;
+    case GPGPU_REG_KERNEL_ARGS_HI:
+        s->kernel.kernel_args = (s->kernel.kernel_args & 0x00000000FFFFFFFFULL) | ((val & 0xFFFFFFFFULL) << 32);
+        break;
+    case GPGPU_REG_SHARED_MEM_SIZE:
+        s->kernel.shared_mem_size = (uint32_t)val;
+        break;
+        
+    // 中英文注释：DISPATCH 寄存器通常作为启动触发器，实验四如果测试了它，暂时只需 break 拦截
+    // DISPATCH register acts as a start trigger. If tested in Exp 4, simply break to intercept.
+    case GPGPU_REG_DISPATCH:
+        // 留给后续实验实现具体触发逻辑
+        break;
+
     case GPGPU_REG_DMA_SRC_LO:
         s->dma.src_addr = (s->dma.src_addr & 0xFFFFFFFF00000000ULL) | (val & 0x00000000FFFFFFFFULL);
         break;
@@ -139,8 +191,6 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
     case GPGPU_REG_THREAD_ID_Z:
         s->simt.thread_id[2] = (uint32_t)val;
         break;
-
-
     case GPGPU_REG_BLOCK_ID_X:
         s->simt.block_id[0] = (uint32_t)val;
         break;
