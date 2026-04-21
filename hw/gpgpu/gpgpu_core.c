@@ -19,15 +19,18 @@ void gpgpu_core_init_warp(GPGPUWarp *warp, uint32_t pc,
                           uint32_t num_threads,
                           uint32_t warp_id, uint32_t block_id_linear)
 {
-    (void)pc;
-    (void)thread_id_base;
-    (void)block_id;
-    (void)num_threads;
-    (void)warp_id;
-    (void)block_id_linear;
-
-
     memset(warp, 0, sizeof(*warp));
+
+    warp->pc = pc;
+    warp->thread_id_base = thread_id_base;
+    warp->block_id = block_id;
+    warp->num_threads = num_threads;
+    warp->warp_id = warp_id;
+    warp->block_id_linear = block_id_linear;
+
+    for (int i = 0; i < num_threads; ++i) {
+        warp->thread_ids = ;
+    }
 }
 /**
  * gpgpu_core_init_warp - 初始化一个 warp
@@ -67,9 +70,9 @@ int gpgpu_core_exec_kernel(GPGPUState *s)
         for (int j = 0; j < warp_num; ++j) {
             GPGPUWarp warp;
             uint32_t active_thread_full = GPGPU_WARP_SIZE;
-            gpgpu_core_init_warp(warp, s->pc, i, block_id_tmp, active_thread_full, i, block_id_linear);
+            gpgpu_core_init_warp(&warp, (uint32_t)s->kernel.kernel_addr, i, block_id_tmp, active_thread_full, j, i);
             if ((j == (warp_num - 1)) & lane_num) {
-                gpgpu_core_init_warp(warp, s->pc, i, block_id_tmp, lane_num, i, block_id_linear);
+                gpgpu_core_init_warp(&warp, (uint32_t)s->kernel.kernel_addr, i, block_id_tmp, lane_num, j, i);
             }
         }
     }
