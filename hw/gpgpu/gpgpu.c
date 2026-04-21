@@ -322,7 +322,8 @@ static void gpgpu_dma_complete(void *opaque)
 /* TODO: Implement kernel completion handler */
 static void gpgpu_kernel_complete(void *opaque)
 {
-    (void)opaque;
+    GPGPUState *s = GPGPU(opaque);
+    int ret = gpgpu_core_exec_kernel(s); //可以进一步加工
 }
 
 static void gpgpu_realize(PCIDevice *pdev, Error **errp)

@@ -40,6 +40,11 @@ int gpgpu_core_exec_warp(GPGPUState *s, GPGPUWarp *warp, uint32_t max_cycles)
 /* TODO: Implement kernel dispatch and execution */
 int gpgpu_core_exec_kernel(GPGPUState *s)
 {
-    (void)s;
+    uint64_t block_num = s->grid_dim[0] * s->grid_dim[1] * s->grid_dim[2];
+    uint64_t warp_num = (block_num * s->block_dim[0] * s->block_dim[1] * s->block_dim[2]) / GPGPU_WARP_SIZE;
+    uint64_t lane_num = (block_num * s->block_dim[0] * s->block_dim[1] * s->block_dim[2]) % GPGPU_WARP_SIZE;
+    for (int i = 0; i < warp_num; ++i) {
+        gpgpu_core_init_warp
+    }
     return 0;
 }
