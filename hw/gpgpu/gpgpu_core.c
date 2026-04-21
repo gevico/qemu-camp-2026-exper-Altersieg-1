@@ -24,14 +24,12 @@ static const uint32_t e2m1_to_fp32_lut[8] = {
     0x40C00000  // 111 -> 6.0
 };
 
-// 中英文注释：纯粹比较绝对值的阈值判定电路
-// Threshold decision circuit based purely on absolute magnitude comparison
+// 纯粹比较绝对值的阈值判定电路
 uint32_t float32_to_e2m1(uint32_t f32_val) {
     uint32_t sign = (f32_val >> 31) & 0x1;
     uint32_t exp  = (f32_val >> 23) & 0xFF;
     
     // 【雷区防线】中英文注释：拦截 NaN。规格书规定 E2M1 没有 NaN，遇到 NaN 必须饱和到 6.0
-    // [Minefield Defense] Intercept NaN. Spec says E2M1 has no NaN, must saturate to 6.0 on NaN
     if (exp == 0xFF && (f32_val & 0x7FFFFF) != 0) {
         return (sign << 3) | 0x7; // 返回带符号的 6.0 (二进制 111)
     }
@@ -44,7 +42,6 @@ uint32_t float32_to_e2m1(uint32_t f32_val) {
     uint8_t mag = 0;
     
     // 中英文注释：RNE (四舍六入五成双) 的中点判断梯子
-    // RNE (Round to Nearest Even) midpoint decision ladder
     if (val >= 5.0f)       { mag = 0x7; } // 饱和到 6.0
     else if (val >= 3.5f)  { mag = 0x6; } // 归入 4.0
     else if (val >= 2.5f)  { mag = 0x5; } // 归入 3.0
@@ -55,6 +52,103 @@ uint32_t float32_to_e2m1(uint32_t f32_val) {
     else                   { mag = 0x0; } // 归入 0.0
 
     return (sign << 3) | mag;
+}
+
+// 中英文注释：核心量化器 - 将 FP32 物理降维为 FP8 (E4M3/E5M2)
+// Core Quantizer - Physical dimension reduction from FP32 to FP8
+uint8_t float32_to_fp8(uint32_t f32_val, bool is_e4m3) {
+    uint32_t sign = (f32_val >> 31) & 0x1;
+    uint32_t exp  = (f32_val >> 23) & 0xFF;
+    uint32_t mant = f32_val & 0x7FFFFF;
+
+    // 架构参数硬件跳线 (Architecture Param Jumpers)
+    int bias_diff = is_e4m3 ? (127 - 7) : (127 - 15);
+    int mant_keep = is_e4m3 ? 3 : 2;
+    int max_exp   = is_e4m3 ? 15 : 30;
+
+    // 防线 1：拦截 Inf/NaN (极其重要，测例必考)
+    if (exp == 0xFF) {
+        // E4M3 规范：Inf/NaN 全局饱和到最大值 448 (0x7E)
+        // E5M2 规范：保持 Inf 状态 (0x78)
+        return is_e4m3 ? ((sign << 7) | 0x7E) : ((sign << 7) | 0x78 | (mant ? 1 : 0));
+    }
+    if (exp == 0 && mant == 0) return sign << 7; // 纯零短路
+
+    // 补齐隐藏位，还原绝对物理阵型
+    uint32_t m = mant | 0x800000; 
+    int target_exp = exp - bias_diff;
+    int shift_dist = 23 - mant_keep;
+
+    // 防线 2 & 4：非规格化处理 (Subnormals)
+    // 如果指数跌穿地板，就拿右移尾数来凑
+    if (target_exp <= 0) {
+        shift_dist += (1 - target_exp);
+        target_exp = 0;
+    }
+
+    if (shift_dist >= 25) return sign << 7; // 跌穿了物理极限，彻底归零
+
+    // 防线 5：硬件级 RNE 舍入逻辑 (无分支进位)
+    uint32_t trunc_mask = (1 << shift_dist) - 1;
+    uint32_t trunc_val = m & trunc_mask;
+    uint32_t half_way = 1 << (shift_dist - 1);
+    
+    // 判决门电路：大于中点，或者正好等于中点且保留最低位为奇数
+    bool round_up = (trunc_val > half_way) || (trunc_val == half_way && ((m >> shift_dist) & 1));
+    
+    m >>= shift_dist;    // 暴力斩断
+    if (round_up) m += 1; // 注入舍入补偿
+
+    // 进位溢出抢救 (例如尾数从 111 进位变成了 1000，必须进位到指数)
+    if (m >= (1 << (mant_keep + 1))) {
+        m >>= 1;
+        target_exp += 1;
+    }
+
+    m &= (1 << mant_keep) - 1; // 掩码掉隐藏位，只留纯尾数
+
+    // 防线 3：上限饱和钳位 (Saturation)
+    if (target_exp > max_exp || (is_e4m3 && target_exp == 15 && m == 7)) {
+        // 踩中 E4M3 保留的 1111_111 坑位，或者超出了最大物理指数
+        if (is_e4m3) return (sign << 7) | 0x7E; // E4M3 钳位到 448
+        else return (sign << 7) | 0x7B; // E5M2 钳位到最大有限值 (0x7B)
+    }
+
+    // 最终物理组装
+    return (sign << 7) | (target_exp << mant_keep) | m;
+}
+
+// 将 FP8 的非标偏移量还原为 FP32 标准
+uint32_t fp8_to_float32(uint8_t fp8_val, bool is_e4m3) {
+    uint32_t sign = (fp8_val >> 7) & 1;
+    int mant_keep = is_e4m3 ? 3 : 2;
+    uint32_t exp = (fp8_val >> mant_keep) & (is_e4m3 ? 0xF : 0x1F);
+    uint32_t mant = fp8_val & ((1 << mant_keep) - 1);
+
+    if (exp == 0 && mant == 0) return sign << 31; // 纯 0
+    
+    // E5M2 的 Inf/NaN 还原
+    if (!is_e4m3 && exp == 0x1F) {
+        return (sign << 31) | 0x7F800000 | (mant << 21); 
+    }
+
+    int bias_diff = is_e4m3 ? (127 - 7) : (127 - 15);
+    int target_exp = exp;
+    
+    // 还原 Subnormals (把向右挤掉的隐藏位移回来)
+    if (target_exp == 0) {
+        while ((mant & (1 << mant_keep)) == 0) {
+            mant <<= 1;
+            target_exp--;
+        }
+        mant &= ~(1 << mant_keep); // 剥离隐藏位
+        target_exp++;
+    }
+    
+    target_exp += bias_diff;
+    uint32_t shifted_mant = mant << (23 - mant_keep);
+
+    return (sign << 31) | (target_exp << 23) | shifted_mant;
 }
 
 /* TODO: Implement warp initialization */
@@ -297,7 +391,7 @@ int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst)
                 *(uint32_t*)(s->vram_ptr + target_addr) = store_val;
             }
             break;
-        case OP_FP: 
+        case 0x53: //53?
             switch(funct7) {
                 case 0x68: // FCVT.S.W
                     for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
@@ -349,18 +443,48 @@ int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst)
                                 if (!(warp->active_mask & (1 << i))) continue;
                                 uint32_t tmp = warp->lanes[i].fpr[rs1];
                                 uint32_t rounding_bias = ((tmp >> 16) & 1) + 0x7FFF;
-                                uint16_t bf16_val = (f32 + rounding_bias) >> 16;
+                                uint16_t bf16_val = (tmp + rounding_bias) >> 16;
                                 // 高 16 位 NaN-Boxing
                                 warp->lanes[i].fpr[rd] = 0xFFFF0000 | bf16_val;
                             }
                             break;
+                        default:
+                            break;
                     }
+                    break;
                 case 0x24:
                     switch(rs2) {
-                        case 0:
-
-                        case 1:
-                    }
+                            case 0: // FCVT.S.E4M3 (E4M3 -> FP32)
+                                for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                                    if (!(warp->active_mask & (1 << i))) continue;
+                                    warp->lanes[i].fpr[rd] = fp8_to_float32(warp->lanes[i].fpr[rs1] & 0xFF, true);
+                                }
+                                break;
+                            case 1: // FCVT.E4M3.S (FP32 -> E4M3)
+                                for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                                    if (!(warp->active_mask & (1 << i))) continue;
+                                    uint32_t src_val = warp->lanes[i].fpr[rs1];
+                                    warp->lanes[i].fpr[rd] = 0xFFFFFF00 | float32_to_fp8(src_val, true);
+                                }   
+                                break;
+                            case 2: // FCVT.S.E5M2 (E5M2 -> FP32)
+                                for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                                    if (!(warp->active_mask & (1 << i))) continue;
+                                    uint32_t src_val = warp->lanes[i].fpr[rs1];
+                                    warp->lanes[i].fpr[rd] = fp8_to_float32(src_val & 0xFF, false);
+                                }
+                                break;
+                            case 3: // FCVT.E5M2.S (FP32 -> E5M2)
+                                for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                                    if (!(warp->active_mask & (1 << i))) continue;
+                                    uint32_t src_val = warp->lanes[i].fpr[rs1];
+                                    warp->lanes[i].fpr[rd] = 0xFFFFFF00 | float32_to_fp8(src_val, false);
+                                }
+                                break;
+                            default:
+                                break;  
+                        }
+                    break;
                 case 0x26:
                     switch(rs2) {
                         case 0: //E2M1 → FP32

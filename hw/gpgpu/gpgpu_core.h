@@ -150,4 +150,10 @@ int gpgpu_core_exec_kernel(GPGPUState *s);
 
 int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst);
 
+uint8_t float32_to_fp8(uint32_t f32_val, bool is_e4m3);
+
+uint32_t fp8_to_float32(uint8_t fp8_val, bool is_e4m3);
+
+uint32_t float32_to_e2m1(uint32_t f32_val);
+
 #endif /* HW_GPGPU_CORE_H */
