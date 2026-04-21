@@ -21,15 +21,12 @@ void gpgpu_core_init_warp(GPGPUWarp *warp, uint32_t pc,
 {
     memset(warp, 0, sizeof(*warp));
 
-    warp->pc = pc;
     warp->thread_id_base = thread_id_base;
     warp->active_mask = 0xFFFFFFFF >> (GPGPU_WARP_SIZE - num_threads);
     warp->block_id[0] = block_id[0];
     warp->block_id[1] = block_id[1];
     warp->block_id[2] = block_id[2];
-    warp->num_threads = num_threads;
     warp->warp_id = warp_id;
-    warp->block_id_linear = block_id_linear;
 
     for (int i = 0; i < num_threads; ++i) {
         warp->lanes[i].pc = pc;
@@ -96,9 +93,15 @@ int gpgpu_core_exec_warp(GPGPUState *s, GPGPUWarp *warp, uint32_t max_cycles)
         }
 
         uint32_t inst = *(uint32_t*)(s->vram_ptr + cmd);
-        if (exec_one_inst(s, &warp, inst) != 0){
+        if (exec_one_inst(s, warp, inst) != 0){
             //报错？
             return -1;
+        }
+
+        for (int i = 0; i < GPGPU_WARP_SIZE; ++i) {
+            if (warp->active_mask & (1 << i)) {
+                warp->lanes[i].pc += 4;
+            }
         }
         cycles++;
     }
@@ -223,7 +226,6 @@ int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst)
         // 还有 SW 和 LW 没写，这里就是处理寻址和内存路由的地方！
         // ---------------------------------------------------------
         case 0x23: // STORE (SW)
-            case 0x23: 
             // 检查 funct3 是否为 0x2 (Word，32位写入)
             if (funct3 != 0x2) return -1; 
 

@@ -148,4 +148,6 @@ int gpgpu_core_exec_warp(GPGPUState *s, GPGPUWarp *warp, uint32_t max_cycles);
  */
 int gpgpu_core_exec_kernel(GPGPUState *s);
 
+int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst);
+
 #endif /* HW_GPGPU_CORE_H */

@@ -157,8 +157,16 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
         s->kernel.shared_mem_size = (uint32_t)val;
         break;
     case GPGPU_REG_DISPATCH:
-        // 留给后续实验实现具体触发逻辑
-        break;
+        s->global_status = GPGPU_STATUS_BUSY; // 设置忙碌
+        
+        if (gpgpu_core_exec_kernel(s) == 0) {
+            s->global_status = GPGPU_STATUS_READY; // 完美执行完毕，恢复就绪
+            s->irq_status |= GPGPU_IRQ_KERNEL_DONE; // 挂起完成中断
+        } else {
+            s->global_status = GPGPU_STATUS_ERROR; // 执行失败
+            s->irq_status |= GPGPU_IRQ_ERROR;
+        }
+    break;
 
     // DMA param
     case GPGPU_REG_DMA_SRC_LO:
@@ -323,7 +331,7 @@ static void gpgpu_dma_complete(void *opaque)
 static void gpgpu_kernel_complete(void *opaque)
 {
     GPGPUState *s = GPGPU(opaque);
-    int ret = gpgpu_core_exec_kernel(s); //可以进一步加工
+    gpgpu_core_exec_kernel(s); //可以进一步加工
 }
 
 static void gpgpu_realize(PCIDevice *pdev, Error **errp)
