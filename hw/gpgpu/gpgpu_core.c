@@ -11,7 +11,51 @@
 #include "qemu/log.h"
 #include "gpgpu.h"
 #include "gpgpu_core.h"
-//#include "qemu/bitops.h"
+
+// E2M1 绝对值到 FP32 查表 (LUT)
+static const uint32_t e2m1_to_fp32_lut[8] = {
+    0x00000000, // 000 -> 0.0
+    0x3F000000, // 001 -> 0.5
+    0x3F800000, // 010 -> 1.0
+    0x3FC00000, // 011 -> 1.5
+    0x40000000, // 100 -> 2.0
+    0x40400000, // 101 -> 3.0
+    0x40800000, // 110 -> 4.0
+    0x40C00000  // 111 -> 6.0
+};
+
+// 中英文注释：纯粹比较绝对值的阈值判定电路
+// Threshold decision circuit based purely on absolute magnitude comparison
+uint32_t float32_to_e2m1(uint32_t f32_val) {
+    uint32_t sign = (f32_val >> 31) & 0x1;
+    uint32_t exp  = (f32_val >> 23) & 0xFF;
+    
+    // 【雷区防线】中英文注释：拦截 NaN。规格书规定 E2M1 没有 NaN，遇到 NaN 必须饱和到 6.0
+    // [Minefield Defense] Intercept NaN. Spec says E2M1 has no NaN, must saturate to 6.0 on NaN
+    if (exp == 0xFF && (f32_val & 0x7FFFFF) != 0) {
+        return (sign << 3) | 0x7; // 返回带符号的 6.0 (二进制 111)
+    }
+
+    // 将 uint32_t 的二进制流安全地剥离符号，转为 float 以利用宿主机的 FPU 进行快速阈值比较
+    uint32_t abs_f32_val = f32_val & 0x7FFFFFFF;
+    float val;
+    memcpy(&val, &abs_f32_val, sizeof(float)); // 绝对安全的类型双关 (Type Punning)
+
+    uint8_t mag = 0;
+    
+    // 中英文注释：RNE (四舍六入五成双) 的中点判断梯子
+    // RNE (Round to Nearest Even) midpoint decision ladder
+    if (val >= 5.0f)       { mag = 0x7; } // 饱和到 6.0
+    else if (val >= 3.5f)  { mag = 0x6; } // 归入 4.0
+    else if (val >= 2.5f)  { mag = 0x5; } // 归入 3.0
+    else if (val >= 1.75f) { mag = 0x4; } // 归入 2.0
+    else if (val >= 1.25f) { mag = 0x3; } // 归入 1.5
+    else if (val >= 0.75f) { mag = 0x2; } // 归入 1.0
+    else if (val >= 0.25f) { mag = 0x1; } // 归入 0.5
+    else                   { mag = 0x0; } // 归入 0.0
+
+    return (sign << 3) | mag;
+}
 
 /* TODO: Implement warp initialization */
 void gpgpu_core_init_warp(GPGPUWarp *warp, uint32_t pc,
@@ -253,7 +297,7 @@ int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst)
                 *(uint32_t*)(s->vram_ptr + target_addr) = store_val;
             }
             break;
-        case 0x53: 
+        case OP_FP: 
             switch(funct7) {
                 case 0x68: // FCVT.S.W
                     for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
@@ -282,14 +326,60 @@ int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst)
                     break;
 
                 case 0x60: //fcvt.w.s
-                        for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                    for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
                             if (!(warp->active_mask & (1 << i))) continue;
                             if(rd != 0) {
                                 warp->lanes[i].gpr[rd] = float32_to_int32_round_to_zero(warp->lanes[i].fpr[rs1], 
                                             &warp->lanes[i].fp_status);
                             }
                         }
-                        break;
+                    break;
+                
+                case 0x22:
+                    switch(rs2) {
+                        case 0:
+                            for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                                if (!(warp->active_mask & (1 << i))) continue;
+                                uint16_t bf16 = warp->lanes[i].fpr[rs1] & 0xFFFF;
+                                warp->lanes[i].fpr[rd] = bf16 << 16; // BF16 和 fp32的特殊关系
+                            }
+                            break;
+                        case 1: //fp32 BF16
+                            for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                                if (!(warp->active_mask & (1 << i))) continue;
+                                uint32_t tmp = warp->lanes[i].fpr[rs1];
+                                uint32_t rounding_bias = ((tmp >> 16) & 1) + 0x7FFF;
+                                uint16_t bf16_val = (f32 + rounding_bias) >> 16;
+                                // 高 16 位 NaN-Boxing
+                                warp->lanes[i].fpr[rd] = 0xFFFF0000 | bf16_val;
+                            }
+                            break;
+                    }
+                case 0x24:
+                    switch(rs2) {
+                        case 0:
+
+                        case 1:
+                    }
+                case 0x26:
+                    switch(rs2) {
+                        case 0: //E2M1 → FP32
+                            for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                                if (!(warp->active_mask & (1 << i))) continue;
+                                // funct5 == 0x13, rs2 == 0 (假设的 E2M1 -> FP32 路由)
+                                uint32_t e2m1_val = warp->lanes[i].fpr[rs1] & 0xF; // 截取低 4 位
+                                uint32_t sign = (e2m1_val >> 3) & 0x1;             // 提取第 3 位符号
+                                uint32_t mag = e2m1_val & 0x7;                     // 提取低 3 位绝对值索引
+                                warp->lanes[i].fpr[rd] = e2m1_to_fp32_lut[mag] | (sign << 31);
+                            }
+                            break;
+                        case 1:
+                            for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
+                                if (!(warp->active_mask & (1 << i))) continue;
+                                warp->lanes[i].fpr[rd] = float32_to_e2m1(warp->lanes[i].fpr[rs1]);              
+                            }
+                            break;
+                    }
             }
             break;
         default:
