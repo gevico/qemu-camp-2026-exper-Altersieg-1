@@ -258,7 +258,7 @@ int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst)
                 case 0x68: // FCVT.S.W
                     for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
                         if (!(warp->active_mask & (1 << i))) continue;
-                        warp->lanes[i].fpr[rd] = int32_to_float32((int32_t)warp->lanes[i].f=gpr[rs1], 
+                        warp->lanes[i].fpr[rd] = int32_to_float32((int32_t)warp->lanes[i].gpr[rs1], 
                                             &warp->lanes[i].fp_status);
                     }
                     break;
@@ -266,14 +266,18 @@ int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst)
                 case 0x08: // FMUL.S
                     for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
                         if (!(warp->active_mask & (1 << i))) continue;
-                        warp->lanes[i].fpr[rd] = warp->lanes[i].fpr[rs1] * warp->lanes[i].fpr[rs2];
+                        warp->lanes[i].fpr[rd] = float32_mul(warp->lanes[i].fpr[rs1], 
+                                                             warp->lanes[i].fpr[rs2], 
+                                                             &warp->lanes[i].fp_status);
                     }
                     break;
 
                 case 0x00: //fadd.s
                     for (int i = 0; i < GPGPU_WARP_SIZE; i++) {                
                         if (!(warp->active_mask & (1 << i))) continue;
-                        warp->lanes[i].fpr[rd] = warp->lanes[i].fpr[rs1] + warp->lanes[i].fpr[rs2];
+                        warp->lanes[i].fpr[rd] = float32_add(warp->lanes[i].fpr[rs1], 
+                                                             warp->lanes[i].fpr[rs2], 
+                                                             &warp->lanes[i].fp_status);
                         }
                     break;
 
@@ -287,6 +291,7 @@ int exec_one_inst(GPGPUState *s, GPGPUWarp *warp, uint32_t inst)
                         }
                         break;
             }
+            break;
         default:
             return -1; // 遇到完全不认识的 opcode，直接报非法指令
     }
