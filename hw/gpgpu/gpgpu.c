@@ -42,7 +42,7 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
     case GPGPU_REG_GLOBAL_CTRL:
         return s->global_ctrl;
 
-    //exp 4 
+    // Kernel param
     case GPGPU_REG_GRID_DIM_X:
         return s->kernel.grid_dim[0];
     case GPGPU_REG_GRID_DIM_Y:
@@ -66,6 +66,7 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
     case GPGPU_REG_SHARED_MEM_SIZE:
         return s->kernel.shared_mem_size;
 
+    // DMA param
     case GPGPU_REG_DMA_SRC_LO:
         return (uint32_t)(s->dma.src_addr & 0xFFFFFFFF);
     case GPGPU_REG_DMA_SRC_HI:
@@ -77,10 +78,14 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
     case GPGPU_REG_DMA_SIZE:
         return s->dma.size;
     case GPGPU_REG_DMA_CTRL:
-        return s->irq_enable;
-    case GPGPU_REG_DMA_STATUS:
-        return s->irq_status; //反映硬件现实
+        return s->dma.ctrl;
 
+    case GPGPU_REG_IRQ_ENABLE:
+        return s->irq_enable;
+    //case GPGPU_REG_IRQ_ACK:
+        //return s->irq_status; //反映硬件现实
+
+    // SIMT param
     case GPGPU_REG_THREAD_ID_X:
         return (uint32_t)s->simt.thread_id[0];
     case GPGPU_REG_THREAD_ID_Y:
@@ -93,14 +98,10 @@ static uint64_t gpgpu_ctrl_read(void *opaque, hwaddr addr, unsigned size)
         return (uint32_t)s->simt.block_id[1];
     case GPGPU_REG_BLOCK_ID_Z:
         return (uint32_t)s->simt.block_id[2];
-
-
     case GPGPU_REG_WARP_ID:
         return (uint32_t)s->simt.warp_id;
     case GPGPU_REG_LANE_ID:
         return (uint32_t)s->simt.lane_id;
-
-
     case GPGPU_REG_THREAD_MASK:
         return (uint32_t)s->simt.thread_mask;
     default:
@@ -121,7 +122,7 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
         s->global_ctrl = val & GPGPU_CTRL_ENABLE;
         break;
 
-    //exp4
+    // kernel param
     case GPGPU_REG_GRID_DIM_X:
         s->kernel.grid_dim[0] = (uint32_t)val;
         break;
@@ -155,13 +156,11 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
     case GPGPU_REG_SHARED_MEM_SIZE:
         s->kernel.shared_mem_size = (uint32_t)val;
         break;
-        
-    // 中英文注释：DISPATCH 寄存器通常作为启动触发器，实验四如果测试了它，暂时只需 break 拦截
-    // DISPATCH register acts as a start trigger. If tested in Exp 4, simply break to intercept.
     case GPGPU_REG_DISPATCH:
         // 留给后续实验实现具体触发逻辑
         break;
 
+    // DMA param
     case GPGPU_REG_DMA_SRC_LO:
         s->dma.src_addr = (s->dma.src_addr & 0xFFFFFFFF00000000ULL) | (val & 0x00000000FFFFFFFFULL);
         break;
@@ -178,10 +177,15 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
         s->dma.size = (uint32_t)val;
         break;
     case GPGPU_REG_DMA_CTRL:
+        s->dma.ctrl = (uint32_t)val;
+        break;
+    case GPGPU_REG_IRQ_ENABLE:
         s->irq_enable = (uint32_t)val | GPGPU_IRQ_KERNEL_DONE | GPGPU_IRQ_DMA_DONE | GPGPU_IRQ_ERROR;
         break;
+    //case GPGPU_REG_IRQ_ACK:
+        
 
-
+    // SIMT param
     case GPGPU_REG_THREAD_ID_X:
         s->simt.thread_id[0] = (uint32_t)val;
         break;
@@ -200,16 +204,12 @@ static void gpgpu_ctrl_write(void *opaque, hwaddr addr, uint64_t val,
     case GPGPU_REG_BLOCK_ID_Z:
         s->simt.block_id[2] = (uint32_t)val;
         break;
-
-
     case GPGPU_REG_WARP_ID:
         s->simt.warp_id = (uint32_t)val;
         break;
     case GPGPU_REG_LANE_ID:
         s->simt.lane_id = (uint32_t)val;
         break;
-
-
     case GPGPU_REG_THREAD_MASK:
         s->simt.thread_mask = (uint32_t)val;
         break;
