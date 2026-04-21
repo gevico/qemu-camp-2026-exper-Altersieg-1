@@ -13,7 +13,6 @@
 #include "gpgpu_core.h"
 
 /* TODO: Implement warp initialization */
-
 void gpgpu_core_init_warp(GPGPUWarp *warp, uint32_t pc,
                           uint32_t thread_id_base, const uint32_t block_id[3],
                           uint32_t num_threads,
@@ -23,25 +22,22 @@ void gpgpu_core_init_warp(GPGPUWarp *warp, uint32_t pc,
 
     warp->pc = pc;
     warp->thread_id_base = thread_id_base;
-    warp->block_id = block_id;
+    warp->active_mask = 0xFFFFFFFF >> (GPGPU_WARP_SIZE - num_threads);
+    warp->block_id[0] = block_id[0];
+    warp->block_id[1] = block_id[1];
+    warp->block_id[2] = block_id[2];
     warp->num_threads = num_threads;
     warp->warp_id = warp_id;
     warp->block_id_linear = block_id_linear;
 
     for (int i = 0; i < num_threads; ++i) {
-        warp->thread_ids = ;
+        warp->lanes[i].pc = pc;
+        warp->lanes[i].active = (num_threads > i);
+        warp->lanes[i].fp_status = 0; // 这个怎么判断？
+        uint32_t mhartid = 0 | MHARTID_ENCODE(block_id_linear, warp_id, i);
+        warp->lanes[i].mhartid = mhartid;
     }
 }
-/**
- * gpgpu_core_init_warp - 初始化一个 warp
- * @warp: warp 状态指针
- * @pc: 初始程序计数器（内核代码地址）
- * @thread_id_base: 起始线程 ID
- * @block_id: block ID 数组 [x, y, z]
- * @num_threads: 活跃线程数量 (最多 32)
- * @warp_id: warp 在 block 内的编号
- * @block_id_linear: 线性化的 block ID
- */
 
 /* TODO: Implement kernel dispatch and execution */
 int gpgpu_core_exec_kernel(GPGPUState *s)
@@ -69,22 +65,36 @@ int gpgpu_core_exec_kernel(GPGPUState *s)
 
         for (int j = 0; j < warp_num; ++j) {
             GPGPUWarp warp;
-            uint32_t active_thread_full = GPGPU_WARP_SIZE;
-            gpgpu_core_init_warp(&warp, (uint32_t)s->kernel.kernel_addr, i, block_id_tmp, active_thread_full, j, i);
-            if ((j == (warp_num - 1)) & lane_num) {
-                gpgpu_core_init_warp(&warp, (uint32_t)s->kernel.kernel_addr, i, block_id_tmp, lane_num, j, i);
+            uint32_t active_thread = GPGPU_WARP_SIZE;
+            uint32_t thread_id_base = j * GPGPU_WARP_SIZE;
+            if ((j == (warp_num - 1)) && lane_num) {
+                active_thread = lane_num;
+            }
+            gpgpu_core_init_warp(&warp, (uint32_t)s->kernel.kernel_addr, thread_id_base, block_id_tmp, active_thread, j, i);
+
+            if (gpgpu_core_exec_warp(s, &warp, 100000) == -1) {
+                return -1;
             }
         }
     }
-
     return 0;
 }
 
 /* TODO: Implement warp execution (RV32I + RV32F interpreter) */
 int gpgpu_core_exec_warp(GPGPUState *s, GPGPUWarp *warp, uint32_t max_cycles)
 {
-    (void)s;
-    (void)warp;
-    (void)max_cycles;
+    uint32_t cycles = 0;
+    while (cycles < max_cycles && warp->active_mask != 0) { // 0 还是 F？
+        // 抓一个活跃线程，取指
+        uint32_t cmd = 0;
+        for (int i = 0; i < GPGPU_WARP_SIZE; ++i) {
+            if (warp->lanes[i].active) { //warp->lanes[i].active 和 warp 的 mask 需要某种同步？
+                cmd = warp->lanes[i].pc;
+                break;
+            }
+        }
+        cycles++;
+    }
+
     return 0;
 }
