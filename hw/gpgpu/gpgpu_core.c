@@ -13,6 +13,7 @@
 #include "gpgpu_core.h"
 
 /* TODO: Implement warp initialization */
+
 void gpgpu_core_init_warp(GPGPUWarp *warp, uint32_t pc,
                           uint32_t thread_id_base, const uint32_t block_id[3],
                           uint32_t num_threads,
@@ -27,6 +28,45 @@ void gpgpu_core_init_warp(GPGPUWarp *warp, uint32_t pc,
 
     memset(warp, 0, sizeof(*warp));
 }
+/**
+ * gpgpu_core_init_warp - 初始化一个 warp
+ * @warp: warp 状态指针
+ * @pc: 初始程序计数器（内核代码地址）
+ * @thread_id_base: 起始线程 ID
+ * @block_id: block ID 数组 [x, y, z]
+ * @num_threads: 活跃线程数量 (最多 32)
+ * @warp_id: warp 在 block 内的编号
+ * @block_id_linear: 线性化的 block ID
+ */
+
+/* TODO: Implement kernel dispatch and execution */
+int gpgpu_core_exec_kernel(GPGPUState *s)
+{
+    uint32_t gx = s->grid_dim[0];
+    uint32_t gy = s->grid_dim[1];
+    uint32_t gz = s->grid_dim[2];
+    uint32_t bx = s->block_dim[0];
+    uint32_t by = s->block_dim[1];
+    uint32_t bz = s->block_dim[2];
+
+    uint64_t block_num_in_grid = gx * gy * gz; // 一个grid里的block数
+    uint64_t thread_num_in_block = bx * by * bz; // 一个block里的thread数
+
+    uint64_t warp_num = thread_num_in_block / GPGPU_WARP_SIZE; //0
+    uint64_t lane_num = thread_num_in_block % GPGPU_WARP_SIZE; //8
+
+    for (int i = 0; i < block_num_in_grid; ++i) {
+
+        for (int j = 0; j < thread_num_in_block; ++j) {
+            gpgpu_core_init_warp(warp, s->pc, i, block_id, lane_num, i, block_id_linear);
+            if (lane_num) {
+                gpgpu_core_init_warp(warp, s->pc, i, block_id, lane_num, i, block_id_linear);
+            }
+        }
+    }
+
+    return 0;
+}
 
 /* TODO: Implement warp execution (RV32I + RV32F interpreter) */
 int gpgpu_core_exec_warp(GPGPUState *s, GPGPUWarp *warp, uint32_t max_cycles)
@@ -34,17 +74,5 @@ int gpgpu_core_exec_warp(GPGPUState *s, GPGPUWarp *warp, uint32_t max_cycles)
     (void)s;
     (void)warp;
     (void)max_cycles;
-    return 0;
-}
-
-/* TODO: Implement kernel dispatch and execution */
-int gpgpu_core_exec_kernel(GPGPUState *s)
-{
-    uint64_t block_num = s->grid_dim[0] * s->grid_dim[1] * s->grid_dim[2];
-    uint64_t warp_num = (block_num * s->block_dim[0] * s->block_dim[1] * s->block_dim[2]) / GPGPU_WARP_SIZE;
-    uint64_t lane_num = (block_num * s->block_dim[0] * s->block_dim[1] * s->block_dim[2]) % GPGPU_WARP_SIZE;
-    for (int i = 0; i < warp_num; ++i) {
-        gpgpu_core_init_warp
-    }
     return 0;
 }
